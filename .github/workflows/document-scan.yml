@@ -17,4 +17,4 @@ jobs:
           ls ${{ github.workspace }}
       - name: Test with pytest
         run: |
-          pytest --check-links --check-links-cache
+          pytest --check-links --check-links-cache docs
