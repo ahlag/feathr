@@ -32,8 +32,8 @@ az ad app create --display-name $sitename --sign-in-audience AzureADMyOrg --web-
 
 #Fetch the ClientId, TenantId and ObjectId for the created app
 aad_clientId=$(az ad app list --display-name $sitename --query [].appId -o tsv)
-aad_objectId=$(az ad app list --display-name $sitename --query [].id -o tsv)
 aad_tenantId=$(az account tenant list --query [].tenantId -o tsv)
+aad_objectId=$(az ad app list --display-name $sitename --query [].id -o tsv)
 
 # Updating the SPA app created above, currently there is no CLI support to add redirectUris to a SPA, so we have to patch manually via az rest
 az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$aad_objectId" --headers "Content-Type=application/json" --body "{spa:{redirectUris:['https://$sitename.azurewebsites.net/.auth/login/aad/callback']}}"
@@ -208,7 +208,7 @@ external_ip=$(curl -s http://whatismyip.akamai.com/)
 echo "External IP is: ${external_ip}. Adding it to firewall rules"
 az synapse workspace firewall-rule create --name allowAll --workspace-name $synapse_workspace_name --resource-group $resoruce_group_name --start-ip-address "$external_ip" --end-ip-address "$external_ip"
 
-# sleep for a few seconds for the chagne to take effect
+# sleep for a few seconds for the change to take effect
 sleep 2
 az synapse role assignment create --workspace-name $synapse_workspace_name --role "Synapse Contributor" --assignee $service_principal_name
 
