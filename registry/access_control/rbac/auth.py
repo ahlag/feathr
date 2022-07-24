@@ -9,7 +9,7 @@ import jwt
 from jwt.exceptions import ExpiredSignatureError, PyJWKError
 
 from rbac import config
-from rbac.models import User
+from rbac.models import User, UserType
 
 
 log = logging.getLogger()
@@ -33,9 +33,7 @@ class AzureADAuth(OAuth2AuthorizationCodeBearer):
             tokenUrl=f"{self.base_auth_url}/oauth2/v2.0/token",
             refreshUrl=f"{self.base_auth_url}/oauth2/v2.0/token",
             scheme_name="oauth2",
-            scopes={
-                f'api://{config.RBAC_API_CLIENT_ID}/access_as_user': 'Access API as user',
-            }
+            scopes={"https://graph.microsoft.com/User.Read": "User.Read"},
         )
 
     async def __call__(self, request: Request) -> User:
@@ -50,15 +48,35 @@ class AzureADAuth(OAuth2AuthorizationCodeBearer):
     @staticmethod
     def _get_user_from_token(decoded_token: Mapping) -> User:
         try:
-            user_id = decoded_token['oid']
+            user_id = decoded_token['sub']
         except Exception as e:
-            logging.debug(e)
-            raise InvalidAuthorization(detail='Unable to extract user details from token')
+            raise InvalidAuthorization(detail=f'Unable to extract subject as unique id from token, {e}')
+
+        aad_user_key = "preferred_username"
+        aad_app_key = "appid"
+        common_user_key = "email"
+        name = decoded_token.get("name", "")
+
+        if aad_user_key in decoded_token:
+            username = decoded_token.get(aad_user_key)
+            type = UserType.AAD_USER
+        elif aad_app_key in decoded_token.keys:
+            username = decoded_token.get(aad_app_key)
+            name = decoded_token.get("app_displayname", "")
+            type = UserType.AAD_APP
+        elif common_user_key in decoded_token.keys:
+            username = decoded_token.get(common_user_key)
+            type = UserType.COMMON_USER
+        else:
+            log.debug(f"unknown user type {decoded_token}")
+            username = user_id
+            type = UserType.UNKNOWN
 
         return User(
             id=user_id,
-            name=decoded_token.get('name', ''),
-            preferred_username=decoded_token.get('preferred_username', ''),
+            name=name,
+            username=username,
+            type = type,
             roles=decoded_token.get('roles', [])
         )
 
@@ -108,21 +126,18 @@ class AzureADAuth(OAuth2AuthorizationCodeBearer):
     def _decode_token(self, token: str) -> Mapping:
         key_id = self._get_key_id(token)
         if not key_id:
-            raise InvalidAuthorization('The token does not contain kid')
+            raise InvalidAuthorization(f'The token does not contain kid: {token}')
         key = self._get_token_key(key_id)
         try:
             decode = jwt.decode(token, key=key, algorithms=[
                                 'RS256'], audience=config.RBAC_API_AUDIENCE)
             return decode
         except ExpiredSignatureError as e:
-            logging.debug(f'The token signature has expired: {e}')
-            raise InvalidAuthorization('The token signature has expired')
+            raise InvalidAuthorization(f'The token signature has expired: {e}')
         except PyJWKError as e:
-            logging.debug(f'Invalid token: {e}')
-            raise InvalidAuthorization('The token is invalid')
+            raise InvalidAuthorization(f'The token is invalid: {e}')
         except Exception as e:
-            logging.debug(f'Unexpected error: {e}')
-            raise InvalidAuthorization('Unable to decode token, error: {e}')
+            raise InvalidAuthorization(f'Unable to decode token, error: {e}')
 
 
 authorize = AzureADAuth()
